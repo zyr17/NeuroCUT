@@ -60,6 +60,60 @@ def sparse_mx_to_torch_sparse_tensor(sparse_mx):
     shape = torch.Size(sparse_mx.shape)
     return torch.sparse.FloatTensor(indices, values, shape)
 
+
+def calc_weight_and_cut_with_idx(
+    edges, weights, node_labels, partition_number,
+):
+    """
+    calculate weight and cut based on node_labels. If invalid_labels is set,
+    invalid_labels[i] == True will make partition i replaced with cut 0 and volume 1
+    to ignore.
+    """
+    total_weight = []
+    total_count = []
+    cut_weight = []
+    cut_count = []
+    edge_links = edges
+    label_edge_links = node_labels[edge_links]
+    for i in range(partition_number):
+        isi = label_edge_links == i
+        both_contain = isi[:, 0] & isi[:, 1]
+        any_contain = isi[:, 0] | isi[:, 1]
+        one_contain = any_contain & ~both_contain
+        total_weight.append(weights[both_contain].sum())
+        total_count.append(both_contain.sum())
+        cut_weight.append(weights[one_contain].sum())
+        cut_count.append(one_contain.sum())
+    return total_weight, total_count, cut_weight, cut_count
+
+
+def calc_reward(
+    total_weight, total_count, cut_weight, cut_count, invalid_penalty=1.0,
+    reward_aggregate_function = 'max',
+):
+    """
+    Calculate reward based on total_weight, total_count, cut_weight,
+    cut_count and reward_function. Calculate norm-cut of each partition
+    and aggregate based on reward function.
+    """
+    cut_weight = np.array(cut_weight)
+    ww = np.array(total_weight) + cut_weight
+    # invalid = np.array(total_weight) < 1e-8
+    # if invalid.any():
+    #     return math.nan
+    # print(cut_weight / ww)
+    bad = ww == 0
+    ww[bad] = 1
+    cut_weight[bad] = invalid_penalty
+    norm_cut = cut_weight / ww
+    if reward_aggregate_function == 'sum':
+        return norm_cut.sum().item()
+    elif reward_aggregate_function == 'max':
+        return norm_cut.max().item()
+    else:
+        raise NotImplementedError
+
+
 def getNormalisedCutValue(data,partitions,num_cuts,device,cuttype,default=float('NaN')):
     '''
     loss function described in https://arxiv.org/abs/1903.00614
@@ -73,16 +127,29 @@ def getNormalisedCutValue(data,partitions,num_cuts,device,cuttype,default=float(
     '''
     Y = partitions
     # get sparse adjecency matrix from edge_index
-    A = torch.sparse_coo_tensor(data.edge_index.to(device), torch.ones(data.edge_index.shape[1]).to(device), (data.num_nodes, data.num_nodes)).to(device)
+    if 'edge_weights' in data and data.edge_weights is not None:
+        edge_weights = data.edge_weights.to(device)
+    else:
+        edge_weights = torch.ones(data.edge_index.shape[1]).to(device)
+    # print(data.edge_index.shape, edge_weights.shape)
+    A = torch.sparse_coo_tensor(data.edge_index.to(device), edge_weights, (data.num_nodes, data.num_nodes)).to(device)
     # A=sparse_mx_to_torch_sparse_tensor(nx.adjacency_matrix(to_networkx(data))).to(device)           # TODO make this again?
     if cuttype=='normalised':
         D = torch.sparse.sum(A, dim=1).to_dense()
         Gamma = torch.mm(Y.t(), D.unsqueeze(1).double())        # time taking
         YbyGamma = torch.div(Y, Gamma.t())
         Y_t = (1 - Y).t()
+        # print('AAA', torch.mm(YbyGamma, Y_t))
+        # print('AAA', (torch.mm(YbyGamma, Y_t) * A.to_dense()).shape)
         normalised_cut = torch.sum(torch.mm(YbyGamma, Y_t) * A.to_dense()).to(device)
-        ## TODO : check this 
-        # print(default)
+        data = calc_weight_and_cut_with_idx(
+            data.edge_index.T.cpu().numpy(), edge_weights.cpu().numpy(), 
+            Y.argmax(dim=1).cpu().numpy(), num_cuts
+        )
+        nc = calc_reward(*data)
+        # print('NC', normalised_cut, nc)
+        normalised_cut = np.array(nc)
+        # pdb.set_trace()
     elif cuttype=='normalised_sparse':
 
 
@@ -372,7 +439,8 @@ def intialise_assgiment(data,intial_type,device):
             partitions[i][part]=1
 
     elif intial_type=='kmeansSpectral':
-        features=torch.load('../data/cora_lc/train_set/1/features_spectral_5_None.pkl')
+        # features=torch.load('../data/cora_lc/train_set/1/features_spectral_5_None.pkl')
+        features=data.x[0].cpu()
         kmean = KMeans(n_clusters=num_cuts, random_state=0).fit(features)
         for i in range(num_nodes):
             part=kmean.labels_[i]
@@ -417,7 +485,7 @@ def intialise_assgiment(data,intial_type,device):
             
     elif intial_type=='optics':
         metric = 'chebyshev'
-        features = data.x[0].cpu()
+        features = data.x[0].cpu().numpy()
         clust = OPTICS(min_samples=10,metric=metric).fit(features)
         clust_labels = clust.labels_
         n_clusters = len(set(clust_labels)) - (1 if -1 in clust_labels else 0)

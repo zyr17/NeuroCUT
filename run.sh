@@ -1,1 +1,1 @@
-make main train="cora_lc" cuttype="normalised" initial_type=kmeans_Linf modelScore=ModelLocalLinkPred gpu=1 epochs=1 node_select=true node_select_heuristic="diff_max_balanced" embedding="given_lipchitz" hops=2 wandb=false anchors=35
+make main train="test_convert_graph" cuttype="normalised" initial_type=random modelScore=ModelLocalLinkPred gpu=0 epochs=10 node_select=true node_select_heuristic="diff_max_balanced" embedding="given" hops=2 wandb=false 

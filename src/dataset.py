@@ -41,18 +41,37 @@ class dataset(Dataset):
         return num_nodes
     
     def generate_edge_index(self,index):
-        edge_list_path = self.folder+f'/{index}/graph.txt'
-        if self.embeding=='given_lipchitz' or self.embeding=='given_spectral' or self.embeding=='given_lipchitz_beta':      # doesnt matter which edge_list_path you use, both should be same
-            edge_list_path = f'../raw_data/{self.dataset_name}/graph.txt'
-
         num_nodes=self.read_num_nodes(index)
-        tgraph=nx.read_edgelist(edge_list_path, nodetype=int)
-        graph=nx.Graph()
-        graph.add_nodes_from(range(num_nodes))
-        graph.add_edges_from(tgraph.edges())
+        if os.path.exists(self.folder+f'/{index}/weight.txt'):
+            print('WEIGHT FOUND')
+            edge_list_path = self.folder+f'/{index}/graph.txt'
+            edge_weight_path = self.folder+f'/{index}/weight.txt'
+            edges = np.loadtxt(edge_list_path).astype(int)
+            edge_weights = np.loadtxt(edge_weight_path).astype(int)[..., None]
+            combine = np.concatenate((edges, edge_weights), axis=1)
+            dup = np.array([combine[:, 1], combine[:, 0], combine[:, 2]])
+            combine = np.concatenate((combine, dup.T), axis=0)
+            cidx = combine[:, 0] * num_nodes + combine[:, 1]
+            c_sorted = combine[cidx.argsort()]
+            edge_index = torch.from_numpy(c_sorted[:, :2].T)
+            edge_weights = torch.from_numpy(c_sorted[:, 2]).double()
+        else:
+            edge_list_path = self.folder+f'/{index}/graph.txt'
+            if self.embeding=='given_lipchitz' or self.embeding=='given_spectral' or self.embeding=='given_lipchitz_beta':      # doesnt matter which edge_list_path you use, both should be same
+                edge_list_path = f'../raw_data/{self.dataset_name}/graph.txt'
 
-        d = from_networkx(graph)
-        return d.edge_index
+            tgraph=nx.read_edgelist(edge_list_path, nodetype=int)
+            graph=nx.Graph()
+            graph.add_nodes_from(range(num_nodes))
+            graph.add_edges_from(tgraph.edges())
+
+            d = from_networkx(graph)
+            edge_index = d.edge_index
+            edge_weights = None
+        # print(edge_index, d.edge_index, edge_index == d.edge_index)
+        # print(torch.equal(edge_index, d.edge_index))
+        # print(edge_index.dtype, d.edge_index.dtype)
+        return edge_index, edge_weights
         # A = nx.adjacency_matrix(self.graph)
         # A_mod = A + sp.eye(A.shape[0])  # Adding Self Loop
         # norm_adj = symnormalise(A_mod)  # Normalization using D^(-1/2) A D^(-1/2)
@@ -259,6 +278,8 @@ class dataset(Dataset):
         return num_cuts
         
     def read_hMetis_norm_cut(self,index):
+        if not os.path.exists(self.folder+f'/{index}/graph_stats.txt'):
+            return -1
         with open(self.folder+f'/{index}/graph_stats.txt') as f:
             data = f.read()
         js = json.loads(data)
@@ -267,6 +288,8 @@ class dataset(Dataset):
         return js['hMetis_norm_cut']
     
     def read_spectral_norm_cut(self,index):
+        if not os.path.exists(self.folder+f'/{index}/graph_stats.txt'):
+            return -1
         with open(self.folder+f'/{index}/graph_stats.txt') as f:
             data = f.read()
         js = json.loads(data)
@@ -291,7 +314,7 @@ class dataset(Dataset):
         x=[self.generate_features(idx+1)]
         # print(x[0].shape)
         # exit(0)
-        edge_index=self.generate_edge_index(idx+1)
+        edge_index, edge_weights = self.generate_edge_index(idx+1)
         #print(edge_index)
         num_cuts=self.read_num_cuts(idx+1)
         hmetis_norm_cut=self.read_hMetis_norm_cut(idx+1)
@@ -300,5 +323,8 @@ class dataset(Dataset):
         node_weights=torch.tensor([1 for i in range(x[0].shape[0])])
         if self.embeding=='Lipschitz_rw_node_weights':
             node_weights=torch.from_numpy(np.loadtxt(self.folder+f'/{idx+1}/node_weights.txt'))
-        return Data(x=x,edge_index=edge_index,hMetis_norm_cut=hmetis_norm_cut,spectral_norm_cut=spectral_norm_cut,num_nodes=x[0].shape[0],num_cuts=num_cuts,node_weights=node_weights).to(self.device)
+        return Data(
+            x=x,edge_index=edge_index,hMetis_norm_cut=hmetis_norm_cut,spectral_norm_cut=spectral_norm_cut,num_nodes=x[0].shape[0],num_cuts=num_cuts,node_weights=node_weights,
+            edge_weights = edge_weights
+        ).to(self.device)
 
