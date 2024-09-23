@@ -385,6 +385,7 @@ bestValNormCut = -1
 norm_cut_values=[]   # list for checking what is happening at test time
 def getPartitions_rl(model,data,device,iter_update_params=5,store_norm_cuts=False):
     cut_this_round = []
+    partition_this_round = []
     with torch.no_grad():
         model.eval()           
         num_nodes = data.num_nodes
@@ -394,6 +395,8 @@ def getPartitions_rl(model,data,device,iter_update_params=5,store_norm_cuts=Fals
         actions=[]
         logits=[]
         init_cut = getNormalisedCutValue(data,partitions,data.num_cuts ,device,cuttype).item()
+        cut_this_round.append(init_cut)
+        partition_this_round.append(partitions.clone())
         if node_select:
             node_scores = get_node_scores(data,partitions,node_select_heuristic,hops,device)
         else:
@@ -445,8 +448,10 @@ def getPartitions_rl(model,data,device,iter_update_params=5,store_norm_cuts=Fals
             if node_select:
                 node_scores = get_node_scores(data,partitions,node_select_heuristic,hops,device)
 
+            norm_cut = getNormalisedCutValue(data, partitions, data.num_cuts ,device,cuttype,default=3*init_cut).item()
+            cut_this_round.append(norm_cut)
+            partition_this_round.append(partitions.clone())
             if store_norm_cuts:
-                norm_cut = getNormalisedCutValue(data, partitions, data.num_cuts ,device,cuttype,default=3*init_cut).item()
                 norm_cut_values.append(norm_cut)
                 # print(i)
 
@@ -461,8 +466,9 @@ def getPartitions_rl(model,data,device,iter_update_params=5,store_norm_cuts=Fals
                 actions=[]
                 logits=[]
         last_cut = getNormalisedCutValue(data, partitions, data.num_cuts ,device,cuttype,default=3*init_cut).item()
-        cut_this_round.append(last_cut)
-    return partitions,min(cut_this_round)
+    # return partitions,last_cut
+    minidx = cut_this_round.index(min(cut_this_round))
+    return partition_this_round[minidx],cut_this_round[minidx],cut_this_round
 
 ## Test 
 ## set test false for validation
@@ -481,7 +487,7 @@ def test(test_set,test=False):
                 print(f"Test set {j},iterations: {_}",end=" ")
             else:
                 print(f"Val set {j},iterations: {_}",end=" ")
-            partitions,norm_cut = getPartitions_rl(model=model, data=data, device=device, iter_update_params=args.iter_update_params)
+            partitions,norm_cut,allcuts = getPartitions_rl(model=model, data=data, device=device, iter_update_params=args.iter_update_params)
             tp=partitions
             if (best_norm_cut==-1 or norm_cut < best_norm_cut) and (not math.isnan(norm_cut)):
                 best_norm_cut = norm_cut
@@ -508,6 +514,9 @@ def test(test_set,test=False):
 # type: train_set,val_set,test_set
 def calculate_stats(dataset,type):   
     result_path_all=f"{result_folder}/{type}"
+
+    initial_res = []
+    final_res = []
     
     for j in range(len(dataset)):
         data = dataset[j].to(device)
@@ -522,7 +531,7 @@ def calculate_stats(dataset,type):
             norm_cut_values.clear()
             # To calculate inference time
             curr_time = time.time()
-            partitions,norm_cut = getPartitions_rl(model=model, data=data, device=device, iter_update_params=args.iter_update_params,store_norm_cuts=True)
+            partitions,norm_cut,allcut = getPartitions_rl(model=model, data=data, device=device, iter_update_params=args.iter_update_params,store_norm_cuts=True)
             tot_time = time.time() - curr_time
             if (best_norm_cut==-1 or norm_cut < best_norm_cut) and (not math.isnan(norm_cut)):
                 best_norm_cut = norm_cut
@@ -557,6 +566,10 @@ def calculate_stats(dataset,type):
             #     print("Partition ", i, " : ", len(best_partitions[i]))
             # print("Cut Value: ", cut_value_train
             print("Normalised Cut Value: ", best_norm_cut)
+            print("All Normalised Cut Value: ", allcut)
+            print("Initial Normalised Cut Value: ", allcut[0])
+            initial_res.append(allcut[0])
+            final_res.append(best_norm_cut)
         sys.stdout=orgininal_std
 
         plot_cuts(dataset_path+f'/{type}/{j+1}/graph.txt',cuts, result_path)
@@ -572,6 +585,10 @@ def calculate_stats(dataset,type):
         plt.close()
     
         print(f"Done {type} {j+1}")
+    print(f'Initial Norm Cut: {initial_res}')
+    print(f'Final Norm Cut: {final_res}')
+    print(f'Initial Norm Cut Statistics: {np.mean(initial_res)} {np.std(initial_res)}')
+    print(f'Final Norm Cut Statistics: {np.mean(final_res)} {np.std(final_res)}')
 
 if __name__ == '__main__':
 
