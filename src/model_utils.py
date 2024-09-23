@@ -428,6 +428,14 @@ def intialise_assgiment(data,intial_type,device):
         for i in range(num_nodes):
             part=int(np.random.randint(0,num_cuts))
             partitions[i][part]=1
+    elif intial_type == 'spectral':
+        p = data['spectral_partition']
+        for idx, part in enumerate(p):
+            partitions[idx][part] = 1
+    elif intial_type=='metis':
+        p = data['metis_partition']
+        for idx, part in enumerate(p):
+            partitions[idx][part] = 1
     elif intial_type=='kmeans':
         features=data.x[0].cpu()
         # print(features.shape)

@@ -384,7 +384,7 @@ def train(epoch):
 bestValNormCut = -1
 norm_cut_values=[]   # list for checking what is happening at test time
 def getPartitions_rl(model,data,device,iter_update_params=5,store_norm_cuts=False):
-    
+    cut_this_round = []
     with torch.no_grad():
         model.eval()           
         num_nodes = data.num_nodes
@@ -461,7 +461,8 @@ def getPartitions_rl(model,data,device,iter_update_params=5,store_norm_cuts=Fals
                 actions=[]
                 logits=[]
         last_cut = getNormalisedCutValue(data, partitions, data.num_cuts ,device,cuttype,default=3*init_cut).item()
-    return partitions,last_cut
+        cut_this_round.append(last_cut)
+    return partitions,min(cut_this_round)
 
 ## Test 
 ## set test false for validation
@@ -469,7 +470,7 @@ def test(test_set,test=False):
     global bestValNormCut
     global bestmodel
     
-    test_norm_cut = 0
+    test_norm_cut = []
     for j in range(len(test_set)):
         best_norm_cut=-1
         best_partitions=None
@@ -485,17 +486,19 @@ def test(test_set,test=False):
             if (best_norm_cut==-1 or norm_cut < best_norm_cut) and (not math.isnan(norm_cut)):
                 best_norm_cut = norm_cut
                 best_partitions = partitions    
-        test_norm_cut += best_norm_cut
+        test_norm_cut.append(best_norm_cut)
     # TODO change this for test vs val these
-    test_norm_cut = test_norm_cut/len(test_set)
+    test_norm_cut = torch.tensor(test_norm_cut)
     if not test:
+        test_norm_cut = test_norm_cut.mean().item()
         if (bestValNormCut==-1 or test_norm_cut < bestValNormCut) and  (not math.isnan(test_norm_cut)):
             bestValNormCut = test_norm_cut
             torch.save(model.state_dict(), model_folder+'/bestval.pth')
             print("Saving Model Val")
             bestmodel = model    
     if test:
-        print('Test Norm Cut : %.5f' % (test_norm_cut))
+        print(f'Full Test Norm Cut: {test_norm_cut.tolist()}')
+        print('Test Norm Cut: %.5f %.5f' % (test_norm_cut.mean(), test_norm_cut.std()))
     else:
         print('Val Norm Cut : %.5f' % (test_norm_cut))
     return test_norm_cut           

@@ -43,7 +43,6 @@ class dataset(Dataset):
     def generate_edge_index(self,index):
         num_nodes=self.read_num_nodes(index)
         if os.path.exists(self.folder+f'/{index}/weight.txt'):
-            print('WEIGHT FOUND')
             edge_list_path = self.folder+f'/{index}/graph.txt'
             edge_weight_path = self.folder+f'/{index}/weight.txt'
             edges = np.loadtxt(edge_list_path).astype(int)
@@ -84,10 +83,10 @@ class dataset(Dataset):
         elif (self.embeding=='spectral'):
             filename=self.folder+f'/{index}/features_spectral_{self.anchors}_{self.norm}.pkl'
         elif (self.embeding=='given'):
-            filename = f'../raw_data/{self.dataset_name}/node_embeddings.pt'
+            filename=self.folder+f'/{index}/node_embeddings.pt'
             if not os.path.isfile(filename):
                 raise FileNotFoundError(f"{filename} not found")
-                
+
         elif (self.embeding=='given_spectral'):
             filename = self.folder+f'/{index}/features_{self.embeding}_{self.anchors}_{self.norm}.pkl'
             f2 = f'../raw_data/{self.dataset_name}/node_embeddings.pt'
@@ -320,11 +319,31 @@ class dataset(Dataset):
         hmetis_norm_cut=self.read_hMetis_norm_cut(idx+1)
         spectral_norm_cut=self.read_spectral_norm_cut(idx+1)
 
+        metis_result = -1
+        spectral_result = -1
+        metis_partition = None
+        spectral_partition = None
+
+        if os.path.exists(self.folder+f'/{idx+1}/graph_stats.txt'):
+            with open(self.folder+f'/{idx+1}/graph_stats.txt') as f:
+                data = f.read()
+            js = json.loads(data)
+            if 'metis_result' in js:
+                metis_result = js['metis_result']
+                metis_partition = torch.tensor(js['metis_partition'])
+            if 'spectral_result' in js:
+                spectral_result = js['spectral_result']
+                spectral_partition = torch.tensor(js['spectral_partition'])
+
         node_weights=torch.tensor([1 for i in range(x[0].shape[0])])
         if self.embeding=='Lipschitz_rw_node_weights':
             node_weights=torch.from_numpy(np.loadtxt(self.folder+f'/{idx+1}/node_weights.txt'))
         return Data(
             x=x,edge_index=edge_index,hMetis_norm_cut=hmetis_norm_cut,spectral_norm_cut=spectral_norm_cut,num_nodes=x[0].shape[0],num_cuts=num_cuts,node_weights=node_weights,
-            edge_weights = edge_weights
+            edge_weights = edge_weights,
+            metis_result = metis_result,
+            spectral_result = spectral_result,
+            metis_partition = metis_partition,
+            spectral_partition = spectral_partition,
         ).to(self.device)
 
