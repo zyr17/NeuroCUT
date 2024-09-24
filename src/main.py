@@ -610,6 +610,9 @@ if __name__ == '__main__':
                 val_norm_cut = test(val_dataset)
                 # val_cut_list.append(val_cut)
                 val_norm_cut_list.append(val_norm_cut)
+            else:
+                torch.save(model.state_dict(), model_folder+'/bestval.pth')
+
         ## saving model
             if wandb_flag:
                 wandb.log({"Train Reward":reward,"Val Norm Cut":val_norm_cut,"Init Cut":init_cut,"Last Cut":last_cut},step=epoch)
@@ -704,7 +707,7 @@ if __name__ == '__main__':
     # train set
     if os.path.exists(model_folder+'/lastmodel.pth'):
         print("Train Set Stats")
-        model.load_state_dict(torch.load(model_folder+'/lastmodel.pth', map_localtion=device))
+        model.load_state_dict(torch.load(model_folder+'/lastmodel.pth', map_location=device))
         model.eval()
 
         calculate_stats(train_dataset,"train_set")
@@ -713,8 +716,8 @@ if __name__ == '__main__':
     model.load_state_dict(torch.load(model_folder+'/bestval.pth', map_location=device))
     model.eval()
 
-    print("Val Set Stats")
-    calculate_stats(val_dataset,"val_set")
+    # print("Val Set Stats")
+    # calculate_stats(val_dataset,"val_set")
 
     print("Test Set Stats")
     calculate_stats(test_dataset,"test_set")
