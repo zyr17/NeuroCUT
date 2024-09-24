@@ -450,7 +450,7 @@ def getPartitions_rl(model,data,device,iter_update_params=5,store_norm_cuts=Fals
 
             norm_cut = getNormalisedCutValue(data, partitions, data.num_cuts ,device,cuttype,default=3*init_cut).item()
             cut_this_round.append(norm_cut)
-            partition_this_round.append(partitions.clone())
+            partition_this_round.append(partitions.clone().cpu())
             if store_norm_cuts:
                 norm_cut_values.append(norm_cut)
                 # print(i)
@@ -606,9 +606,10 @@ if __name__ == '__main__':
             rewards.append(reward)
             init_cut_list.append(init_cut)
             last_cut_list.append(last_cut)
-            val_norm_cut = test(val_dataset)
-            # val_cut_list.append(val_cut)
-            val_norm_cut_list.append(val_norm_cut)
+            if num_epochs > 1:
+                val_norm_cut = test(val_dataset)
+                # val_cut_list.append(val_cut)
+                val_norm_cut_list.append(val_norm_cut)
         ## saving model
             if wandb_flag:
                 wandb.log({"Train Reward":reward,"Val Norm Cut":val_norm_cut,"Init Cut":init_cut,"Last Cut":last_cut},step=epoch)
@@ -677,15 +678,16 @@ if __name__ == '__main__':
             # plt.close()
 
 
-            plt.clf()
-            plt.plot([i for i in range(len(val_norm_cut_list))],val_norm_cut_list,label="Val_norm_Cut")
-            plt.legend()
-            plt.title("Val_norm_cut vs Epoch")
-            plt.xlabel("Epoch")
-            plt.ylabel("Val_Norm_Cut")
-            plt.draw()
-            plt.savefig(f"{result_folder}/norm_cut.png")
-            plt.close()
+            if num_epoch > 1:
+                plt.clf()
+                plt.plot([i for i in range(len(val_norm_cut_list))],val_norm_cut_list,label="Val_norm_Cut")
+                plt.legend()
+                plt.title("Val_norm_cut vs Epoch")
+                plt.xlabel("Epoch")
+                plt.ylabel("Val_Norm_Cut")
+                plt.draw()
+                plt.savefig(f"{result_folder}/norm_cut.png")
+                plt.close()
 
 
     print("Calculating Stats")
@@ -700,14 +702,15 @@ if __name__ == '__main__':
     # some metrics to calculate stats on the test set   
 
     # train set
-    print("Train Set Stats")
-    model.load_state_dict(torch.load(model_folder+'/lastmodel.pth'))
-    model.eval()
+    if os.path.exists(model_folder+'/lastmodel.pth'):
+        print("Train Set Stats")
+        model.load_state_dict(torch.load(model_folder+'/lastmodel.pth', map_localtion=device))
+        model.eval()
 
-    calculate_stats(train_dataset,"train_set")
+        calculate_stats(train_dataset,"train_set")
 
     
-    model.load_state_dict(torch.load(model_folder+'/bestval.pth'))
+    model.load_state_dict(torch.load(model_folder+'/bestval.pth', map_location=device))
     model.eval()
 
     print("Val Set Stats")
